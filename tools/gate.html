@@ -1,0 +1,98 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="color-scheme" content="light dark">
+<meta name="robots" content="noindex, nofollow">
+<title>Private page</title>
+<style>
+:root{--ink:#1d1d1f;--mute:#5f5f66;--line:#d2d2d7;--bg:#fbfbfd;--card:#fff;--accent:#0a6c74;--accent-ink:#fff;--bad:#a3221b;--focus:#0a84ff}
+@media (prefers-color-scheme:dark){:root{--ink:#f5f5f7;--mute:#a1a1a6;--line:#38383d;--bg:#0f0f11;--card:#1c1c1e;--accent:#5ccbd4;--accent-ink:#06282b;--bad:#ff9b92}}
+*{box-sizing:border-box}
+body{margin:0;min-height:100vh;display:grid;place-items:center;padding:20px;font:16px/1.5 -apple-system,BlinkMacSystemFont,"Segoe UI",Helvetica,Arial,sans-serif;color:var(--ink);background:var(--bg)}
+form{width:100%;max-width:360px;background:var(--card);border:1px solid var(--line);border-radius:20px;padding:28px 24px}
+h1{font-size:1.4rem;letter-spacing:-.015em;margin:0 0 4px}
+p{color:var(--mute);margin:0 0 18px;font-size:.95rem}
+label.vh{position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0 0 0 0)}
+input[type=password]{width:100%;font:inherit;color:var(--ink);background:var(--bg);border:1px solid var(--line);border-radius:12px;padding:11px 14px}
+.remember{display:flex;gap:8px;align-items:center;margin:12px 0 18px;font-size:.92rem;color:var(--mute)}
+button{width:100%;font:inherit;font-weight:600;border:0;border-radius:999px;padding:11px;background:var(--accent);color:var(--accent-ink);cursor:pointer}
+button:disabled{opacity:.6;cursor:progress}
+.err{color:var(--bad);font-size:.9rem;min-height:1.4em;margin:10px 0 0}
+:focus-visible{outline:3px solid var(--focus);outline-offset:2px}
+noscript{display:block;margin-top:12px;color:var(--bad)}
+</style>
+</head>
+<body>
+<form id="gate" autocomplete="on">
+  <h1>Private page</h1>
+  <p>Enter the password to continue.</p>
+  <input type="text" name="username" value="site" autocomplete="username" hidden>
+  <label class="vh" for="pw">Password</label>
+  <input type="password" id="pw" autocomplete="current-password" placeholder="Password" required autofocus>
+  <label class="remember"><input type="checkbox" id="remember" checked> Remember on this device</label>
+  <button type="submit" id="go">Open</button>
+  <p class="err" id="err" role="alert"></p>
+  <noscript>This page needs JavaScript to unlock.</noscript>
+</form>
+<script id="payload" type="application/json">/*PAYLOAD*/</script>
+<script>
+(function(){
+  "use strict";
+  var P = JSON.parse(document.getElementById('payload').textContent);
+  var KEY = 'site.unlock.' + P.salt.slice(0, 12);
+  var form = document.getElementById('gate'), err = document.getElementById('err'), btn = document.getElementById('go');
+  function b64(s){ var b = atob(s), u = new Uint8Array(b.length); for (var i=0;i<b.length;i++) u[i]=b.charCodeAt(i); return u; }
+  function tob64(buf){ var u = new Uint8Array(buf), s=''; for (var i=0;i<u.length;i++) s+=String.fromCharCode(u[i]); return btoa(s); }
+  function store(k, v){ try { v === null ? localStorage.removeItem(k) : localStorage.setItem(k, v); } catch(e){} }
+  function read(k){ try { return localStorage.getItem(k); } catch(e){ return null; } }
+
+  if (!(window.crypto && crypto.subtle)) {
+    err.textContent = 'This browser cannot unlock the page. Open it over https in a current browser.';
+    btn.disabled = true; return;
+  }
+
+  function derive(pw){
+    return crypto.subtle.importKey('raw', new TextEncoder().encode(pw), 'PBKDF2', false, ['deriveKey'])
+      .then(function(base){
+        return crypto.subtle.deriveKey({name:'PBKDF2', salt:b64(P.salt), iterations:P.iter, hash:'SHA-256'},
+          base, {name:'AES-GCM', length:256}, true, ['decrypt']);
+      });
+  }
+  function open(key){
+    return crypto.subtle.decrypt({name:'AES-GCM', iv:b64(P.iv)}, key, b64(P.ct)).then(function(buf){
+      var html = new TextDecoder().decode(buf);
+      document.open(); document.write(html); document.close();
+    });
+  }
+
+  var saved = read(KEY);
+  if (saved) {
+    crypto.subtle.importKey('raw', b64(saved), 'AES-GCM', true, ['decrypt'])
+      .then(open).catch(function(){ store(KEY, null); });
+  }
+
+  form.addEventListener('submit', function(e){
+    e.preventDefault();
+    var pw = document.getElementById('pw').value;
+    if (!pw) return;
+    err.textContent = ''; btn.disabled = true; btn.textContent = 'Unlocking…';
+    var key;
+    derive(pw).then(function(k){ key = k; return crypto.subtle.decrypt({name:'AES-GCM', iv:b64(P.iv)}, k, b64(P.ct)); })
+      .then(function(){
+        if (document.getElementById('remember').checked) {
+          return crypto.subtle.exportKey('raw', key).then(function(raw){ store(KEY, tob64(raw)); });
+        }
+      })
+      .then(function(){ return open(key); })
+      .catch(function(){
+        err.textContent = 'Wrong password. Try again.';
+        btn.disabled = false; btn.textContent = 'Open';
+        document.getElementById('pw').select();
+      });
+  });
+})();
+</script>
+</body>
+</html>
