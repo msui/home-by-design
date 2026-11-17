@@ -60,17 +60,27 @@ noscript{display:block;margin-top:12px;color:var(--bad)}
           base, {name:'AES-GCM', length:256}, true, ['decrypt']);
       });
   }
+  // Replace this page with the decrypted one. document.open() is ignored while the
+  // parser is still running this page's scripts (it would append instead of replace),
+  // so always wait until the gate page has fully loaded.
+  function afterLoad(){
+    return new Promise(function(resolve){
+      if (document.readyState === 'complete') setTimeout(resolve, 0);
+      else window.addEventListener('load', function(){ setTimeout(resolve, 0); }, {once:true});
+    });
+  }
   function open(key){
     return crypto.subtle.decrypt({name:'AES-GCM', iv:b64(P.iv)}, key, b64(P.ct)).then(function(buf){
       var html = new TextDecoder().decode(buf);
-      document.open(); document.write(html); document.close();
+      return afterLoad().then(function(){ document.open(); document.write(html); document.close(); });
     });
   }
 
   var saved = read(KEY);
   if (saved) {
+    form.hidden = true; // remembered: unlock quietly instead of flashing the prompt
     crypto.subtle.importKey('raw', b64(saved), 'AES-GCM', true, ['decrypt'])
-      .then(open).catch(function(){ store(KEY, null); });
+      .then(open).catch(function(){ store(KEY, null); form.hidden = false; document.getElementById('pw').focus(); });
   }
 
   form.addEventListener('submit', function(e){
